@@ -51,11 +51,31 @@ class SecretBaseAgent(CaptureAgent):
         CaptureAgent.register_initial_state(self, game_state)
         # define patrol points
         self.x, self.y = self.get_patrol_points(game_state)
+        self.improve_patrol_points(game_state)
         self.starting_pos = game_state.get_agent_position(self.index)
 
     # OVERRIDE: each agent defines their own patrol points
     def get_patrol_points(self, game_state):
         raise NotImplementedError("implement this method!!!")
+
+    def improve_patrol_points(self, game_state):
+        height = game_state.data.layout.height
+        width = game_state.data.layout.width
+
+
+        # normalize coordinates to prevent errors
+        if self.x < 0:
+            self.x += width
+        if self.y < 0:
+            self.y += height
+        self.x = self.x % width
+        self.y = self.y % height
+
+        walls = game_state.get_walls()
+        # if patrol point is wall, change y-coordinate
+        while walls[self.x][self.y]:
+            self.y = (self.y + 1) % height
+
 
     def choose_action(self, game_state):
         pos = game_state.get_agent_position(self.index)
