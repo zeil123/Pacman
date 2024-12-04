@@ -148,6 +148,7 @@ class AgentRamenDon(SecretBaseAgent):
         self.mode = "attack"  # Start in attack mode
         self.power_mode_active = False  # track if power capsule is active
         self.successful_steal = False  # track successful stealing attempts
+        self.safety_count= 1
 
     def choose_action(self, game_state):
         my_pos = game_state.get_agent_position(self.index)
@@ -161,6 +162,7 @@ class AgentRamenDon(SecretBaseAgent):
         if game_state.get_agent_position(self.index) == self.starting_pos:
             self.mode = "attack"
 
+
         # case of power capsule activation
         if power_capsule_active:
             self.power_mode_active = True
@@ -168,6 +170,9 @@ class AgentRamenDon(SecretBaseAgent):
         elif self.power_mode_active and not power_capsule_active:
             self.power_mode_active = False  # Reset power mode after end of usage
             self.mode = "defense" if stolen_food == 0 and self.successful_steal else "attack"
+
+        # adjust pacman path based on ghost proximity
+        self.safety_count = self.update_safety_count(my_pos, ghosts)
 
         # choose between attack and defense
         if self.mode == "attack":
@@ -189,13 +194,28 @@ class AgentRamenDon(SecretBaseAgent):
                 self.mode = "defense"
             return self.to_border_point(game_state, legal_actions)
 
-        # Collect closest food
-        if food_list:
-            close_food = min(food_list, key=lambda food: self.get_maze_distance(my_pos, food))
-            return self.get_to_target(game_state, close_food, legal_actions)
+        # collect safest food to prevent respawn
+        target_food = self.select_safe_food(my_pos, food_list, ghosts)
+        if target_food:
+            return self.get_to_target(game_state, target_food, legal_actions)
 
         # random move if actions available, stop if no legal actions existing
         return random.choice(legal_actions) if legal_actions else Directions.STOP
+
+    def update_safety_count(self, my_pos, ghosts):
+
+        distance_ghost = [
+            self.get_maze_distance(my_pos, ghost.get_position())
+            for ghost in ghosts if ghost.get_position()
+        ]
+        if not distance_ghost:
+            return 1  # low safety count when no ghost nearby
+        closest_distance = min(distance_ghost)
+
+        base_safety = 2
+        scale_factor = 3  # adjusts dynamic increase
+        safety_count = base_safety + int(scale_factor * (1 / (closest_distance + 1)) ** 2) # exponential switch
+        return min(safety_count, 10)  # max safety count of 10
 
     def is_in_danger(self, my_pos, ghosts, game_state):
 
@@ -205,6 +225,29 @@ class AgentRamenDon(SecretBaseAgent):
             if ghost_pos and self.get_maze_distance(my_pos, ghost_pos) < 4:
                 return True
         return False
+
+    def select_safe_food(self, my_pos, food_list, ghosts):
+
+        score_food = []
+        for food in food_list:
+            score = 20
+            distance = self.get_maze_distance(my_pos, food)
+            score -= distance  # high penalty for further food to ensure short path
+
+            for ghost in ghosts:
+                ghost_pos = ghost.get_position()
+                if ghost_pos and self.get_maze_distance(food, ghost_pos) < self.safety_count:
+                    score -= 30  # penalty for closer ghosts
+
+            score_food.append((score, food))
+
+        # randomly choose highest food to make Ramen don unpredictable
+        score_food.sort(reverse=True, key=lambda x: x[0])
+        top_food_options = score_food[:3]
+        if top_food_options:
+            return random.choice(top_food_options)[1]  # pick one out of three best
+        else:
+            return None
 
     def to_border_point(self, game_state, legal_actions):
         return self.get_to_target(game_state, (self.x, self.y), legal_actions)
